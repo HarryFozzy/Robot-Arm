@@ -1,4 +1,3 @@
-from pynput import keyboard
 import gpiozero, cv2, threading, pickle, math, queue, time
 from gpiozero import Servo
 from gpiozero.pins.pigpio import PiGPIOFactory
@@ -30,6 +29,9 @@ with open('calibration.pkl', 'rb') as f:
     CAMERA_MATRIX, DIST_COEFFS = pickle.load(f)
 
 MARKER_SIZE = 2  # 2 cm 
+
+CARRIER_MARKER = 0
+RECEIVER_MARKER = 1
 
 REQUIRED_COORDS = [2, 36, 54] #mm
 REQUIRED_CON_COORDS = [2, 36, 54] #mm
@@ -303,21 +305,22 @@ def ProcessFrame(frame):
     cv2.imshow("Detection", frame)
     cv2.waitKey(1)
     
-    if ids is not None and len(ids) >= 2:
-        marker_positions = {}
-        
-        # Store detected marker positions
-        for i, marker_id in enumerate(ids.flatten()):
-            rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
-                corners[i], MARKER_SIZE, CAMERA_MATRIX, DIST_COEFFS
-            )
-            marker_positions[marker_id] = tvec[0][0] # Extract (X,Y,Z)
+    if ids is not None:
+        if len(ids) >= 2:
+            marker_positions = {}
             
-        # Ensure both marker 0 and marker 1 are detected
-        if 0 in marker_positions and 1 in marker_positions:
-            # Compute relative position of Marker 1 from Marker 0
-            relative_position = marker_positions[1] - marker_positions[0]
-            return relative_position  # Return calculated distance
+            # Store detected marker positions
+            for i, marker_id in enumerate(ids.flatten()):
+                rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
+                    corners[i], MARKER_SIZE, CAMERA_MATRIX, DIST_COEFFS
+                )
+                marker_positions[marker_id] = tvec[0][0] # Extract (X,Y,Z)
+                
+            # Ensure both marker 0 and marker 1 are detected
+            if CARRIER_MARKER in marker_positions and RECEIVER_MARKER in marker_positions:
+                # Compute relative position of Marker 1 from Marker 0
+                relative_position = marker_positions[RECEIVER_MARKER] - marker_positions[CARRIER_MARKER]
+                return relative_position  # Return calculated distance
 
     print("[Error] No Markers detected")
     return None  # If markers are not found

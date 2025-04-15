@@ -1,3 +1,10 @@
+import numpy as np
+import sys, time, math
+import cv2
+import pickle
+import os
+print(os.getcwd())
+
 def positioning(tvec):
      #-- Desired position 
      desr_pos = ['0','4','0']
@@ -74,10 +81,6 @@ def relativePositions():
 # This code us used to detect one marker and tell the camera the direction to move
 #-----------------------------------------------
 
-import numpy as np
-import sys, time, math
-import cv2
-import pickle
 
 ARUCO_DICT = {
   "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
@@ -197,43 +200,66 @@ while True:
   # Detect ArUco markers
   detector = cv2.aruco.ArucoDetector(arucoDict, arucoParams)
   corners, ids, rejected = detector.detectMarkers(img)
+  
 
   # Print the position (corner coordinates) and ID of each detected marker
   if ids is not None:
-    if ids.size < 2:
-        cv2.putText(img, "Marker Missing", (50, 50), font, 4, (0, 0, 255), 2, cv2.LINE_AA)
-    else:
-      tvec_0 = []
-      tvec_1 = []
-      rvec_0 = []
-      rvec_1 = []
-
-      for i, corner in enumerate(corners):
-        if ids[i] == main_marker:
-            # Estimate the pose of the marker
-            rvec_0, tvec_0, _ = cv2.aruco.estimatePoseSingleMarkers(corner, MARKER_SIZE, camera_matrix, distortion_coeffs)
-            
-            # Change layout of tvec and rvec for ease of use
-            tvec_0 = tvec_0[0][0]
-            rvec_0 = rvec_0[0][0]
-            
-            # Draw detected markers on the frame
-            cv2.aruco.drawDetectedMarkers(img, (corner.astype(np.float32),), None , (0,255,255))
-           
-            showPositions(rvec_0, tvec_0, 0)
-            
-        if ids[i] == arm_marker:
-            # Estimate the pose of the marker
-            rvec_1, tvec_1, _ = cv2.aruco.estimatePoseSingleMarkers(corner, MARKER_SIZE, camera_matrix, distortion_coeffs)
-            
-            # Change layout of tvec and rvec for ease of use
-            tvec_1 = tvec_1[0][0]
-            rvec_1 = rvec_1[0][0]
-            
-            showPositions(rvec_1, tvec_1, 1)
+      print("Marker Detected")
+      print(len(ids))
+      if len(ids) >= 2:
         
-        if len(tvec_1) > 0 and len(tvec_0) > 0:
-            relativePositions()
+        print("Multiple markers detected.")
+        marker_positions = {}
+        # Store detected marker positions
+        for i, marker_id in enumerate(ids.flatten()):
+            print("[Message] Estimating Positions")
+            rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
+                corners[i], MARKER_SIZE, camera_matrix, distortion_coeffs
+            )
+            marker_positions[marker_id] = tvec[0][0] # Extract (X,Y,Z)
+            
+        # Ensure both marker 0 and marker 1 are detected
+        if main_marker in marker_positions and arm_marker in marker_positions:
+            print("[Check] Correct Markers Detected")
+            # Compute relative position of Marker 1 from Marker 0
+            relative_position = marker_positions[arm_marker] - marker_positions[main_marker]
+            print(relative_position) # Return calculated distance
+        else:
+            print("[Error] Incorrect Markers Detected")
+    # if len(ids) < 2:
+    #     cv2.putText(img, "Marker Missing", (50, 50), font, 4, (0, 0, 255), 2, cv2.LINE_AA)
+    # else:
+    #   tvec_0 = []
+    #   tvec_1 = []
+    #   rvec_0 = []
+    #   rvec_1 = []
+
+    #   for i, corner in enumerate(corners):
+    #     if ids[i] == main_marker:
+    #         # Estimate the pose of the marker
+    #         rvec_0, tvec_0, _ = cv2.aruco.estimatePoseSingleMarkers(corner, MARKER_SIZE, camera_matrix, distortion_coeffs)
+            
+    #         # Change layout of tvec and rvec for ease of use
+    #         tvec_0 = tvec_0[0][0]
+    #         rvec_0 = rvec_0[0][0]
+            
+    #         # Draw detected markers on the frame
+    #         cv2.aruco.drawDetectedMarkers(img, (corner.astype(np.float32),), None , (0,255,255))
+           
+    #         showPositions(rvec_0, tvec_0, 0)
+            
+    #     if ids[i] == arm_marker:
+    #         # Estimate the pose of the marker
+    #         rvec_1, tvec_1, _ = cv2.aruco.estimatePoseSingleMarkers(corner, MARKER_SIZE, camera_matrix, distortion_coeffs)
+            
+    #         # Change layout of tvec and rvec for ease of use
+    #         tvec_1 = tvec_1[0][0]
+    #         rvec_1 = rvec_1[0][0]
+            
+    #         showPositions(rvec_1, tvec_1, 1)
+        
+    #     if len(tvec_1) > 0 and len(tvec_0) > 0:
+    #         relativePositions()
 
 
   k = cv2.waitKey(5)
