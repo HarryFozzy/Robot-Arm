@@ -7,8 +7,8 @@ import pickle
 
 ################ FIND CHESSBOARD CORNERS - OBJECT POINTS AND IMAGE POINTS #############################
 
-chessboardSize = (10,7)
-frameSize = (297,210)
+chessboardSize = (9,6)
+frameSize = (3280,2464)
 
 
 
@@ -20,7 +20,7 @@ criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 objp = np.zeros((chessboardSize[0] * chessboardSize[1], 3), np.float32)
 objp[:,:2] = np.mgrid[0:chessboardSize[0],0:chessboardSize[1]].T.reshape(-1,2)
 
-size_of_chessboard_squares_mm = 25
+size_of_chessboard_squares_mm = 35
 objp = objp * size_of_chessboard_squares_mm
 
 
@@ -48,6 +48,9 @@ for image in images:
 
         # Draw and display the corners
         cv.drawChessboardCorners(img, chessboardSize, corners2, ret)
+        
+        cv.imwrite('calibrated/img' + str(image) + '.png', img)
+        
         cv.imshow('img', img)
         cv.waitKey(1000)
 
@@ -69,7 +72,7 @@ pickle.dump(dist, open( "dist.pkl", "wb" ))
 
 ############## UNDISTORTION #####################################################
 
-img = cv.imread('cali5.png')
+img = cv.imread(images[0])
 h,  w = img.shape[:2]
 newCameraMatrix, roi = cv.getOptimalNewCameraMatrix(cameraMatrix, dist, (w,h), 1, (w,h))
 

@@ -1,18 +1,10 @@
 import RPi.GPIO as GPIO
-from gpiozero import Servo
-from gpiozero.pins.pigpio import PiGPIOFactory
 import cv2
 import numpy as np
 from picamera2 import Picamera2
 from time import sleep
 import sys, math
 import pickle
-
-factory = PiGPIOFactory() # Set timing factory for hardware timing
-
-# Video Feed Size
-Frame_Height = int(3280/2)
-Frame_Width = int(2464/2)
 
 #---------------------------------------------------------------------------
 # CAMERA FUNCTIONS
@@ -187,6 +179,8 @@ arucoParams = cv2.aruco.DetectorParameters()
 # ---------------------------
 # Start Video Stream
 # ---------------------------
+Frame_Height = 3280/2
+Frame_Width = 2464/2
 print("[INFO] starting video stream...")
 cap = Picamera2()
 cap.preview_configuration.main.size=(Frame_Height,Frame_Width)
@@ -197,8 +191,17 @@ cap.start()
 # ELECTRONIC SETUP
 #--------------------------------------------------------------------------------
 
-# Linear Actuator Setup
+# Servo Setup
 GPIO.setmode(GPIO.BCM)
+ShoulderPin = 27
+ElbowPin = 22
+GPIO.setup(ShoulderPin, GPIO.OUT)
+GPIO.setup(ElbowPin, GPIO.OUT)
+ShoulderServo = GPIO.PWM(ShoulderPin, 50)
+ElbowServo = GPIO.PWM(ElbowPin, 50)
+
+ShoulderServo.start(0)
+ElbowServo.start(0)
 
 # Linear Actuator
 # Pin Definitions
@@ -215,15 +218,11 @@ GPIO.setup(input_pin2, GPIO.OUT)
 pwm = GPIO.PWM(enable_pin, 1000)  # PWM on enable_pin at 1kHz frequency
 pwm.start(0)  # Start PWM with 0% duty cycle
 
-# Servo Setup
-ShoulderServo = Servo(27, min_pulse_width=0.1/1000, max_pulse_width=2.5/1000, pin_factory=factory)
-ElbowServo = Servo(22, min_pulse_width=0.1/1000, max_pulse_width=2.4/1000, pin_factory=factory)
-
-# Servo Start Angles
-CurrentShoulderAngle = 0
-CurrentElbowAngle = 0
-
-maxAngle = 135 # Max Servo Angle either way
+# Initial Servo Values
+ShoulderStart = 135
+ElbowStart = 75
+CurrentShoulderAngle = ShoulderStart
+CurrentElbowAngle = ElbowStart
 
 # Arm sizes
 FOREARM_LENGTH = 185
@@ -234,18 +233,16 @@ UPPERARM_LENGTH = 105
 # -------------------------------------------
 
 #Servo
+def Angle2DutyCycle(Angle):
+    deg0 = 4
+    deg180 = 12.5
+    DutyCycle = deg0 + (Angle - 0)*(deg180-deg0)/(180-0)
+    return DutyCycle
+        
 def ChangeShoulderAngle(InputAngle):
-    ElbowServo.value = InputAngle/maxAngle
-    ShoulderServo.value = -InputAngle/maxAngle
-    
-    print(f"Final Elbow Angle: {CurrentElbowAngle}")
-    print(f"Final Shoulder Angle: {CurrentShoulderAngle}")
-    
-    
-def ChangeShoulderAngle_OLD(InputAngle):
     # Calculate target angles for both servos
-    TargetElbowAngle = InputAngle
-    TargetShoulderAngle = -InputAngle
+    TargetElbowAngle = ElbowStart + InputAngle
+    TargetShoulderAngle = ShoulderStart - InputAngle
     
     global CurrentShoulderAngle
     global CurrentElbowAngle
@@ -264,7 +261,8 @@ def ChangeShoulderAngle_OLD(InputAngle):
             elif CurrentElbowAngle > TargetElbowAngle:
                 CurrentElbowAngle -= IncrementAngle
         
-            ElbowServo.value = CurrentElbowAngle/maxAngle
+            DutyCycle = Angle2DutyCycle(CurrentElbowAngle)
+            ElbowServo.ChangeDutyCycle(DutyCycle)
             sleep(0.1)  # Delay for smooth movement
 
         if CurrentShoulderAngle != TargetShoulderAngle:
@@ -273,7 +271,8 @@ def ChangeShoulderAngle_OLD(InputAngle):
             elif CurrentShoulderAngle > TargetShoulderAngle:
                 CurrentShoulderAngle -= IncrementAngle
         
-            ShoulderServo.Value = CurrentShoulderAngle/maxAngle
+            DutyCycle = Angle2DutyCycle(CurrentShoulderAngle)
+            ShoulderServo.ChangeDutyCycle(DutyCycle)
             sleep(0.1)  # Delay for smooth movement
 
     print(f"Final Elbow Angle: {CurrentElbowAngle}")
@@ -299,8 +298,7 @@ def stop_actuator():
 # INITIALISE POITIONS
 #---------------------------------------------
 
-ShoulderServo.mid()
-ElbowServo.mid()
+ChangeShoulderAngle(0)
 
 retract_actuator()
 sleep(10)
@@ -318,105 +316,74 @@ optimal_position = [0,0,0] # X, Y, Z
 # OPENING CAMERA VISUALISATION
 #----------------------------------
 
+frame_counter = 0
+SKIP_FRAMES = 3
+num = 0
+
 while True:
+    img = cap.capture_array()  # Assume capture_array() is optimized
+    if img is None:
+        print("Error: Image capture failed!")
+        continue
 
-    img = cap.capture_array()
-    # Build in some sort of feedback if capture doesn't start
-  
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Downscale image for faster processing
+    img_resized = cv2.resize(img, (img.shape[1] // 2, img.shape[0] // 2))
 
-    # Would it be good to have a recording of what happened?
-  
-    # Detect ArUco markers  
-    corners, ids, rejected = cv2.aruco.detectMarkers(img, arucoDict)
+    gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
+    corners, ids, rejected = cv2.aruco.detectMarkers(gray, arucoDict)
 
-    # Print the position (corner coordinates) and ID of each detected marker
     if ids is not None:
         if ids.size < 2:
             cv2.putText(img, "Marker Missing", (50, 50), font, 4, (0, 0, 255), 2, cv2.LINE_AA)
         else:
-            tvec_0 = []
-            tvec_1 = []
-            rvec_0 = []
-            rvec_1 = []
+            tvec_0, tvec_1, rvec_0, rvec_1 = None, None, None, None
 
             for i, corner in enumerate(corners):
                 if ids[i] == main_marker:
-                    # Estimate the pose of the marker
-                    rvec_0, tvec_0, _ = cv2.aruco.estimatePoseSingleMarkers(corner, MARKER_SIZE, camera_matrix, distortion_coeffs)
-                    
-                    # Change layout of tvec and rvec for ease of use
-                    tvec_0 = tvec_0[0][0]
-                    rvec_0 = rvec_0[0][0]
-                    
-                    # Draw detected markers on the frame
-                    cv2.aruco.drawDetectedMarkers(img, (corner.astype(np.float32),), None , (0,255,255))
-                
+                    rvec_0, tvec_0, _ = cv2.aruco.estimatePoseSingleMarkers(
+                        corner, MARKER_SIZE, camera_matrix, distortion_coeffs
+                    )
+                    tvec_0, rvec_0 = tvec_0[0][0], rvec_0[0][0]
+                    cv2.aruco.drawDetectedMarkers(img, (corner.astype(np.float32),), None, (0, 255, 255))
                     showPositions(rvec_0, tvec_0, 0)
-                    
-                if ids[i] == arm_marker:
-                    # Estimate the pose of the marker
-                    rvec_1, tvec_1, _ = cv2.aruco.estimatePoseSingleMarkers(corner, MARKER_SIZE, camera_matrix, distortion_coeffs)
-                    
-                    # Change layout of tvec and rvec for ease of use
-                    tvec_1 = tvec_1[0][0]
-                    rvec_1 = rvec_1[0][0]
-                    
+
+                elif ids[i] == arm_marker:
+                    rvec_1, tvec_1, _ = cv2.aruco.estimatePoseSingleMarkers(
+                        corner, MARKER_SIZE, camera_matrix, distortion_coeffs
+                    )
+                    tvec_1, rvec_1 = tvec_1[0][0], rvec_1[0][0]
                     showPositions(rvec_1, tvec_1, 1)
-                
-                if len(tvec_1) > 0 and len(tvec_0) > 0:
-                    X,Y,Z = relativePositions()
-                    try:
-                        ANGLE_CHANGE = math.degrees(math.asin(Z/UPPERARM_LENGTH))
-                    except ValueError:
-                        print("Invalid angle calculation due to Z/UPPERARM_LENGTH exceeding bounds.")
-                        continue
-                    
-                    # --------------------------------------
-                    # CONTROL FROM CAMERA INPUT
-                    # --------------------------------------
-                    
-                    MAX_ANGLE = arm_limit[0]
-                    CurrentShoulderAngle = CurrentShoulderAngle+ANGLE_CHANGE
-                    if abs(CurrentShoulderAngle) > MAX_ANGLE:
-                        print(f"Angle {CurrentShoulderAngle:.2f} exceeds the limit of {MAX_ANGLE} degrees. Skipping movement.")
-                        continue
-                    
-                    ChangeShoulderAngle(CurrentShoulderAngle)
 
-                    
-                    # # InputDistance = int(input("Enter Distance: "))
-                    # # Extend the actuator
-                    # extend_actuator()
-                    # sleep(5)  # Extend for 2 seconds
-                    
-                    # # Stop the actuator
-                    # stop_actuator()
-                    # sleep(1)  # Pause for 1 second
+            if tvec_0 is not None and tvec_1 is not None:
+                X, Y, Z = relativePositions()
+                try:
+                    ANGLE_CHANGE = math.degrees(math.asin(Z / UPPERARM_LENGTH))
+                except ValueError:
+                    print("Invalid angle calculation due to Z/UPPERARM_LENGTH exceeding bounds.")
+                    continue
 
-                    # # Retract the actuator
-                    # retract_actuator()
-                    # sleep(2)  # Retract for 2 seconds
-                    
-                    # # Stop the actuator
-                    # stop_actuator()
+                MAX_ANGLE = arm_limit[0]
+                ANGLE = CurrentShoulderAngle + ANGLE_CHANGE
+                if abs(ANGLE - ShoulderStart) > MAX_ANGLE:
+                    print(f"Angle {ANGLE - ShoulderStart:.2f} exceeds the limit of {MAX_ANGLE} degrees. Skipping movement.")
+                    continue
 
+                # ChangeShoulderAngle(ANGLE)
 
-    k = cv2.waitKey(5)
-    if k == ord('s'): # wait for 's' key to save and exit
-        cv2.imwrite('VideoImages/img' + str(num) + '.png', img)
-        print("image saved!")
+    # Display and save frames
+    if frame_counter % SKIP_FRAMES == 0:
+        cv2.imshow('Camera', img)
+
+    if cv2.waitKey(5) == ord('s'):  # Save image
+        cv2.imwrite(f'VideoImages/img{num}.png', img)
+        print("Image saved!")
         num += 1
 
-    # Display the output frame
-    cv2.imshow('Camera', img)
-
-# Break the loop if 'q' is pressed
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord("q"):
+    if cv2.waitKey(1) & 0xFF == ord("q"):  # Exit loop
         break
-  
-# Release video and close all windows
+
+    frame_counter += 1
+
 cv2.destroyAllWindows()
 print("Exiting program.")
 pwm.stop()

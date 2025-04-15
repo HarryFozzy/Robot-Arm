@@ -11,8 +11,21 @@ import pickle
 factory = PiGPIOFactory() # Set timing factory for hardware timing
 
 # Video Feed Size
-Frame_Height = int(3280/2)
-Frame_Width = int(2464/2)
+Frame_Height = int(3280)
+Frame_Width = int(2464)
+
+# Markers
+MARKER_SIZE = 2  # 2 cm marker size
+main_marker = 0; # Main ArUco Marker id
+arm_marker = 1; # Arm ArUco Marker id
+
+
+#----------------------------------------------
+# LIMITS OF ARM
+#----------------------------------------------
+arm_limit = [50,0,0] # SHOULDER_ANGLE, ELBOW_ANGLE, ACTUATOR_LENGTH
+
+optimal_position = [0,0,0] # X, Y, Z
 
 #---------------------------------------------------------------------------
 # CAMERA FUNCTIONS
@@ -22,28 +35,11 @@ def positioning(tvec):
     #-- Desired position 
     desr_pos = [0,4,0]
 
-    # Define the possible directions
-    directions = ["STABLE", "RIGHT", "LEFT"]
-    directions2 = ["STABLE", "DOWN", "UP"]
-    directions3 = ["STABLE", "BACKWARDS", "FORWARDS"]
-
     # Calculate the differences
     dx = (tvec[0] - desr_pos[0]).item()
     dy = (tvec[1] - desr_pos[1]).item()
     dz = (tvec[2] - desr_pos[2]).item()
 
-    # Determine index using tolerance of 1 unit
-    index = 0 if abs(dx) <= 1 else int(np.sign(dx))
-    index2 = 0 if abs(dy) <= 1 else int(np.sign(dy))
-    index3 = 0 if abs(dz) <= 1 else int(np.sign(dz))
-
-    # Lookup the direction using the index
-    text = directions[index]
-    text2 = directions2[index2]
-    text3 = directions3[index3]
-
-    # Display the result
-    cv2.putText(img, f"{text}, {text2}, {text3}", (50, 400), font, 2, (0, 0, 255), 2, cv2.LINE_AA)
     print(f"Z Position: {dz} mm")
     return ([dx,dy,dz])
  
@@ -51,25 +47,6 @@ def positioning(tvec):
 def orientating(rvec):
     desr_ori = [180,0,0]
      
-def showPositions(rvec, tvec, id):
-    # Draw the axis for each marker
-    cv2.drawFrameAxes(img, camera_matrix, distortion_coeffs, rvec, tvec, MARKER_SIZE)
-
-        #-- print tag position in camera frame
-    str_position = "MARKER "+str(id)+" Position x=%4.0f y=%4.0f z=%4.0f"%(tvec[0],tvec[1],tvec[2])
-    cv2.putText(img, str_position, (0,100+id*25), font,1, (0, 255,0), 2, cv2.LINE_AA)
-
-    #-- Obtain the rotation matrix tag->camera
-    R_ct = np.matrix(cv2.Rodrigues(rvec)[0])
-    R_tc = R_ct.T
-
-    #-- Get the attitude in terms of the euler 321 (needs to be flipped first)
-    roll_marker, pitch_marker, yaw_marker = rotationMatrixToEulerAngles(R_flip*R_tc)
-
-    #-- Print the marker's attitude respect to the camera frame
-    str_attitude = "MARKER "+str(id)+" Attitude r=%4.0f p=%4.0f y=%4.0f"%(math.degrees(roll_marker),math.degrees(pitch_marker),math.degrees(yaw_marker))
-    cv2.putText(img, str_attitude, (0, 150+id*25), font, 1, (255,0,0), 2, cv2.LINE_AA)
-
 def relativePositions():
     # Calculate the relative positions of the markers
     tvec = tvec_0 - tvec_1;
@@ -81,14 +58,6 @@ def relativePositions():
 
     #-- Get the attitude in terms of the euler 321 (needs to be flipped first)
     roll_marker, pitch_marker, yaw_marker = rotationMatrixToEulerAngles(R_flip*R_tc)
-
-    #-- Print the marker's attitude respect to the camera frame
-    str_attitude = "MARKER angle r=%4.0f p=%4.0f y=%4.0f"%(math.degrees(roll_marker),math.degrees(pitch_marker),math.degrees(yaw_marker))
-    cv2.putText(img, str_attitude, (0, 75), font, 1, (255,255,0), 2, cv2.LINE_AA)
-    
-    #-- print tag position in camera frame
-    str_position = "MARKER distances x=%4.0f y=%4.0f z=%4.0f"%(tvec[0],tvec[1],tvec[2])
-    cv2.putText(img, str_position, (0, 50), font, 1, (255,255,0), 2, cv2.LINE_AA)
     
     x,y,z = positioning(tvec)
     return ([x,y,z])
@@ -102,24 +71,7 @@ ARUCO_DICT = {
   "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
   "DICT_4X4_100": cv2.aruco.DICT_4X4_100,
   "DICT_4X4_250": cv2.aruco.DICT_4X4_250,
-  "DICT_4X4_1000": cv2.aruco.DICT_4X4_1000,
-  "DICT_5X5_50": cv2.aruco.DICT_5X5_50,
-  "DICT_5X5_100": cv2.aruco.DICT_5X5_100,
-  "DICT_5X5_250": cv2.aruco.DICT_5X5_250,
-  "DICT_5X5_1000": cv2.aruco.DICT_5X5_1000,
-  "DICT_6X6_50": cv2.aruco.DICT_6X6_50,
-  "DICT_6X6_100": cv2.aruco.DICT_6X6_100,
-  "DICT_6X6_250": cv2.aruco.DICT_6X6_250,
-  "DICT_6X6_1000": cv2.aruco.DICT_6X6_1000,
-  "DICT_7X7_50": cv2.aruco.DICT_7X7_50,
-  "DICT_7X7_100": cv2.aruco.DICT_7X7_100,
-  "DICT_7X7_250": cv2.aruco.DICT_7X7_250,
-  "DICT_7X7_1000": cv2.aruco.DICT_7X7_1000,
-  "DICT_ARUCO_ORIGINAL": cv2.aruco.DICT_ARUCO_ORIGINAL,
-  "DICT_APRILTAG_16h5": cv2.aruco.DICT_APRILTAG_16H5,
-  "DICT_APRILTAG_25h9": cv2.aruco.DICT_APRILTAG_25H9,
-  "DICT_APRILTAG_36h10": cv2.aruco.DICT_APRILTAG_36H10,
-  "DICT_APRILTAG_36h11": cv2.aruco.DICT_APRILTAG_36H11
+  "DICT_4X4_1000": cv2.aruco.DICT_4X4_1000
 }
 
 #-----------------------------------------------
@@ -153,21 +105,6 @@ def rotationMatrixToEulerAngles(R):
         z = 0
 
     return np.array([x,y,z])
-
-# Main ArUco Marker id
-main_marker = 0;
-
-# Arm ArUco Marker id
-arm_marker = 1;
-
-# Taking photos 
-num = 0
-
-# Font for the text
-font = cv2.FONT_HERSHEY_PLAIN
-
-# ArUco marker size in meters (adjust this to your marker size)
-MARKER_SIZE = 2  # 2 cm marker size
 
 # Camera calibration parameters 
 with open('calibration.pkl', 'rb') as f:
@@ -240,44 +177,6 @@ def ChangeShoulderAngle(InputAngle):
     
     print(f"Final Elbow Angle: {CurrentElbowAngle}")
     print(f"Final Shoulder Angle: {CurrentShoulderAngle}")
-    
-    
-def ChangeShoulderAngle_OLD(InputAngle):
-    # Calculate target angles for both servos
-    TargetElbowAngle = InputAngle
-    TargetShoulderAngle = -InputAngle
-    
-    global CurrentShoulderAngle
-    global CurrentElbowAngle
-        
-    IncrementAngle = 1
-    
-    print(f"Elbow: {CurrentElbowAngle} -> {TargetElbowAngle}, Shoulder: {CurrentShoulderAngle} -> {TargetShoulderAngle}")
-
-    iteration_limit = 10  # Prevent locking up the loop.
-    iterations = 0
-    while (CurrentElbowAngle != TargetElbowAngle or CurrentShoulderAngle != TargetShoulderAngle) and iterations < iteration_limit:
-        iterations += 1
-        if CurrentElbowAngle != TargetElbowAngle:
-            if CurrentElbowAngle < TargetElbowAngle:
-                CurrentElbowAngle += IncrementAngle
-            elif CurrentElbowAngle > TargetElbowAngle:
-                CurrentElbowAngle -= IncrementAngle
-        
-            ElbowServo.value = CurrentElbowAngle/maxAngle
-            sleep(0.1)  # Delay for smooth movement
-
-        if CurrentShoulderAngle != TargetShoulderAngle:
-            if CurrentShoulderAngle < TargetShoulderAngle:
-                CurrentShoulderAngle += IncrementAngle
-            elif CurrentShoulderAngle > TargetShoulderAngle:
-                CurrentShoulderAngle -= IncrementAngle
-        
-            ShoulderServo.Value = CurrentShoulderAngle/maxAngle
-            sleep(0.1)  # Delay for smooth movement
-
-    print(f"Final Elbow Angle: {CurrentElbowAngle}")
-    print(f"Final Shoulder Angle: {CurrentShoulderAngle}")
      
 #Linear Actuator
 def extend_actuator():
@@ -307,13 +206,6 @@ sleep(10)
 
 stop_actuator()
 
-#----------------------------------------------
-# LIMITS OF ARM
-#----------------------------------------------
-arm_limit = [50,0,0] # SHOULDER_ANGLE, ELBOW_ANGLE, ACTUATOR_LENGTH
-
-optimal_position = [0,0,0] # X, Y, Z
-
 #----------------------------------
 # OPENING CAMERA VISUALISATION
 #----------------------------------
@@ -333,7 +225,7 @@ while True:
     # Print the position (corner coordinates) and ID of each detected marker
     if ids is not None:
         if ids.size < 2:
-            cv2.putText(img, "Marker Missing", (50, 50), font, 4, (0, 0, 255), 2, cv2.LINE_AA)
+            print("Missing Marker")
         else:
             tvec_0 = []
             tvec_1 = []
@@ -351,8 +243,6 @@ while True:
                     
                     # Draw detected markers on the frame
                     cv2.aruco.drawDetectedMarkers(img, (corner.astype(np.float32),), None , (0,255,255))
-                
-                    showPositions(rvec_0, tvec_0, 0)
                     
                 if ids[i] == arm_marker:
                     # Estimate the pose of the marker
@@ -361,8 +251,6 @@ while True:
                     # Change layout of tvec and rvec for ease of use
                     tvec_1 = tvec_1[0][0]
                     rvec_1 = rvec_1[0][0]
-                    
-                    showPositions(rvec_1, tvec_1, 1)
                 
                 if len(tvec_1) > 0 and len(tvec_0) > 0:
                     X,Y,Z = relativePositions()
@@ -379,12 +267,12 @@ while True:
                     MAX_ANGLE = arm_limit[0]
                     CurrentShoulderAngle = CurrentShoulderAngle+ANGLE_CHANGE
                     if abs(CurrentShoulderAngle) > MAX_ANGLE:
+                        CurrentShoulderAngle = CurrentShoulderAngle-ANGLE_CHANGE
                         print(f"Angle {CurrentShoulderAngle:.2f} exceeds the limit of {MAX_ANGLE} degrees. Skipping movement.")
                         continue
                     
                     ChangeShoulderAngle(CurrentShoulderAngle)
 
-                    
                     # # InputDistance = int(input("Enter Distance: "))
                     # # Extend the actuator
                     # extend_actuator()
@@ -401,19 +289,13 @@ while True:
                     # # Stop the actuator
                     # stop_actuator()
 
-
-    k = cv2.waitKey(5)
-    if k == ord('s'): # wait for 's' key to save and exit
-        cv2.imwrite('VideoImages/img' + str(num) + '.png', img)
-        print("image saved!")
-        num += 1
-
     # Display the output frame
     cv2.imshow('Camera', img)
 
-# Break the loop if 'q' is pressed
+    # Break the loop if 'q' is pressed
     key = cv2.waitKey(1) & 0xFF
     if key == ord("q"):
+        ChangeShoulderAngle(0)
         break
   
 # Release video and close all windows
